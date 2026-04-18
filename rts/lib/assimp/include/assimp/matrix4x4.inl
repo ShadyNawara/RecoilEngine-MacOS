@@ -54,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "quaternion.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include "lib/streflop/streflop_cond.h"
 

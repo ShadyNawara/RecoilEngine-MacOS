@@ -120,9 +120,24 @@ void SMFRenderStateGLSL::Update(
 				glslShaders[n]->SetFlag("SMF_PARALLAX_MAPPING",                 smfMap->GetParallaxHeightTexture() != 0);
 			}
 
+#ifdef __APPLE__
+			// Zink/KosmicKrisp validator rejects the initial-false → runtime-true
+			// re-link path with "active samplers with a different type refer to
+			// the same texture image unit" because when the relinked program
+			// introduces a new sampler (sampler2DShadow shadowTex, sampler2D
+			// infoTex), its uniform defaults to unit 0 and collides with
+			// diffuseTex which is already bound at 0. Bake both flags in at
+			// initial link so the SetUniform calls below bind their units
+			// (shadowTex=4, infoTex=14) before any runtime toggle can happen.
+			// Forward-Std has no shadowTex SetUniform so keep HAVE_SHADOWS=false
+			// there to avoid re-introducing the collision on that program.
+			glslShaders[n]->SetFlag("HAVE_SHADOWS", isAdv);
+			glslShaders[n]->SetFlag("HAVE_INFOTEX", true);
+#else
 			// both are runtime set in ::Enable, but AMD drivers need values from the beginning
 			glslShaders[n]->SetFlag("HAVE_SHADOWS", false);
 			glslShaders[n]->SetFlag("HAVE_INFOTEX", false);
+#endif
 
 			if (n == GLSL_SHADER_DFR_ADV) {
 				glslShaders[n]->SetFlag("DEFERRED_MODE", true);
@@ -254,10 +269,19 @@ void SMFRenderStateGLSL::Enable(const CSMFGroundDrawer* smfGroundDrawer, const D
 
 	glActiveTexture(GL_TEXTURE0);
 
+#ifdef __APPLE__
+	// Flag values are baked in at initial link above on APPLE (HAVE_SHADOWS
+	// = isAdv, HAVE_INFOTEX = true). Don't flip them at runtime — a relink
+	// re-introduces the "active samplers with a different type" collision
+	// under Zink/KosmicKrisp. The engine already guards the shadow-texture
+	// binds below with ShadowsLoaded(); the shader safely reads an unbound
+	// sampler as zeros, which is the expected no-shadow result anyway.
+#else
 	if (isAdv)
 		currShader->SetFlag("HAVE_SHADOWS", shadowHandler.ShadowsLoaded());
 
 	currShader->SetFlag("HAVE_INFOTEX", infoTextureHandler->IsEnabled());
+#endif
 
 	currShader->Enable();
 	currShader->SetUniform("mapHeights", readMap->GetCurrMinHeight(), readMap->GetCurrMaxHeight());

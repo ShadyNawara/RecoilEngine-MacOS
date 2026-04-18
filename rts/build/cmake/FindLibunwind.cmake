@@ -36,9 +36,10 @@ find_path(LIBUNWIND_PKGCONFIG_DIR libunwind.pc
 )
 
 if (APPLE AND LIBUNWIND_INCLUDE_DIR)
-  # FIXME: OS X 10.10 doesn't have static libunwind.a only dynamic libunwind.dylib;
-  #        link with "-framework Cocoa"
-  set(LIBUNWIND_LIBRARY "-framework Cocoa")
+  # macOS ships libunwind inside libSystem (always linked), so no explicit
+  # library path is needed. Use a marker value so version handling below
+  # still reports the dependency as found.
+  set(LIBUNWIND_LIBRARY "APPLE_SYSTEM_LIBUNWIND")
 else ()
   find_library(LIBUNWIND_LIBRARY NAMES unwind ${LIB_STD_ARGS})
 endif ()
@@ -48,14 +49,24 @@ if (LIBUNWIND_INCLUDE_DIR AND LIBUNWIND_LIBRARY)
   set(LIBUNWIND_DEFINITIONS "LIBUNWIND")
   set(LIBUNWIND_INCLUDE_DIRS ${LIBUNWIND_INCLUDE_DIR})
   set(LIBUNWIND_LIBRARIES ${LIBUNWIND_LIBRARY})
-  
+
   if (NOT TARGET libunwind::libunwind)
-    add_library(libunwind::libunwind UNKNOWN IMPORTED)
-    set_target_properties(libunwind::libunwind PROPERTIES
-                          INTERFACE_COMPILE_DEFINITIONS ${LIBUNWIND_DEFINITIONS}
-                          INTERFACE_INCLUDE_DIRECTORIES ${LIBUNWIND_INCLUDE_DIR}
-                          IMPORTED_LOCATION ${LIBUNWIND_LIBRARY}
-    )
+    if (APPLE)
+      # INTERFACE target: no library to link; header-only declaration since
+      # libunwind symbols are provided by libSystem.
+      add_library(libunwind::libunwind INTERFACE IMPORTED)
+      set_target_properties(libunwind::libunwind PROPERTIES
+                            INTERFACE_COMPILE_DEFINITIONS ${LIBUNWIND_DEFINITIONS}
+                            INTERFACE_INCLUDE_DIRECTORIES ${LIBUNWIND_INCLUDE_DIR}
+      )
+    else ()
+      add_library(libunwind::libunwind UNKNOWN IMPORTED)
+      set_target_properties(libunwind::libunwind PROPERTIES
+                            INTERFACE_COMPILE_DEFINITIONS ${LIBUNWIND_DEFINITIONS}
+                            INTERFACE_INCLUDE_DIRECTORIES ${LIBUNWIND_INCLUDE_DIR}
+                            IMPORTED_LOCATION ${LIBUNWIND_LIBRARY}
+      )
+    endif ()
   endif()
 endif()
 

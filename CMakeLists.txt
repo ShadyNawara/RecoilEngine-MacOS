@@ -98,6 +98,10 @@ if    (APPLE)
 	if    (MACOSX_BUNDLE)
 		add_definitions(-DMACOSX_BUNDLE)
 	endif (MACOSX_BUNDLE)
+	# sol2 disables sol::nil by default on Apple to avoid a clash with the
+	# Objective-C "nil" macro. We don't pull in ObjC headers, so re-enable it
+	# so existing sol::nil / sol::type::nil usages compile.
+	add_definitions(-DSOL_NO_NIL=0)
 else  (APPLE)
 	set(MACOSX_BUNDLE FALSE)
 endif (APPLE)

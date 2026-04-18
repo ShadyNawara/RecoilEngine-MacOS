@@ -9,6 +9,7 @@
 #include "System/Log/ILog.h"
 
 #include <SDL_video.h>
+#include "System/Platform/Mac/MacEGL.h" // Must be after SDL on APPLE to shim SDL_GL_*
 
 static constexpr int MAX_ADAPTIVE_INTERVAL = -6;
 static constexpr int MAX_STANDARD_INTERVAL = +6;

@@ -131,10 +131,21 @@ if(DevIL_FOUND)
     set(DevIL_ILUT_FOUND FALSE)
   endif()
   
+  # Expose both the direct include dir and its parent so that source files
+  # can use either "#include <il.h>" or "#include <IL/il.h>". macOS/Homebrew
+  # layouts only ship headers under include/IL which breaks the "IL/"
+  # prefixed style. Scoped to APPLE to leave other platforms untouched.
+  set(_devil_includes "${IL_INCLUDE_DIR}")
+  if(APPLE AND IL_INCLUDE_DIR MATCHES "/IL$")
+    get_filename_component(_devil_include_parent "${IL_INCLUDE_DIR}" DIRECTORY)
+    list(APPEND _devil_includes "${_devil_include_parent}")
+    unset(_devil_include_parent)
+  endif()
+
   if(NOT TARGET DevIL::IL)
     add_library(DevIL::IL UNKNOWN IMPORTED)
     set_target_properties(DevIL::IL PROPERTIES
-                          INTERFACE_INCLUDE_DIRECTORIES "${IL_INCLUDE_DIR}"
+                          INTERFACE_INCLUDE_DIRECTORIES "${_devil_includes}"
                           IMPORTED_LOCATION "${IL_LIBRARIES}")
     
     if(PREFER_STATIC_LIBS)

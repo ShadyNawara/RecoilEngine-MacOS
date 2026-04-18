@@ -58,8 +58,13 @@ static constexpr int NUM_MSAA_SAMPLES = 2;
 #define RMLUI_STRINGIFY(x) RMLUI_STRINGIFY_IMPL(x)
 
 #define RMLUI_SHADER_HEADER_VERSION "#version 330\n"
+#ifdef __APPLE__
+#define RMLUI_SHADER_HEADER_PLATFORM "#define RMLUI_APPLE_KK 1\n"
+#else
+#define RMLUI_SHADER_HEADER_PLATFORM ""
+#endif
 #define RMLUI_SHADER_HEADER \
-    RMLUI_SHADER_HEADER_VERSION "#define MAX_NUM_STOPS " RMLUI_STRINGIFY(MAX_NUM_STOPS) "\n"
+    RMLUI_SHADER_HEADER_VERSION RMLUI_SHADER_HEADER_PLATFORM "#define MAX_NUM_STOPS " RMLUI_STRINGIFY(MAX_NUM_STOPS) "\n"
 
 static const char* shader_vert_main = RMLUI_SHADER_HEADER R"(
 uniform vec2 _translate;
@@ -222,6 +227,27 @@ void main() {
 }
 )";
 
+// Used ONLY at the final EndFrame composite (fb_postprocess → default FB) on
+// Apple/KosmicKrisp, where the FBO alpha channel reads back as 1 everywhere
+// — causing the premultiplied-alpha blend (GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
+// to zero the destination and the screen goes black. Intermediate UI passes
+// (filter chain, blur, mask, drop-shadow) must NOT use this — they need
+// near-black fragments to survive (menu backgrounds, text shadows) — so the
+// discard is scoped to a separate program used only at backbuffer composite.
+static const char* shader_frag_passthrough_composite = RMLUI_SHADER_HEADER R"(
+uniform sampler2D _tex;
+in vec2 fragTexCoord;
+out vec4 finalColor;
+
+void main() {
+	vec4 c = texture(_tex, fragTexCoord);
+#ifdef RMLUI_APPLE_KK
+	if (c.r + c.g + c.b == 0.0) discard;
+#endif
+	finalColor = c;
+}
+)";
+
 static const char* shader_frag_color_matrix = RMLUI_SHADER_HEADER R"(
 uniform sampler2D _tex;
 uniform mat4 _color_matrix;
@@ -317,6 +343,7 @@ enum class ProgramId
 	Gradient,
 	Creation,
 	Passthrough,
+	PassthroughComposite,
 	ColorMatrix,
 	BlendMask,
 	Blur,
@@ -337,6 +364,7 @@ enum class FragShaderId
 	Gradient,
 	Creation,
 	Passthrough,
+	PassthroughComposite,
 	ColorMatrix,
 	BlendMask,
 	Blur,
@@ -410,26 +438,28 @@ static const VertShaderDefinition vert_shader_definitions[] = {
 	{VertShaderId::Blur,        "blur",        shader_vert_blur},
 };
 static const FragShaderDefinition frag_shader_definitions[] = {
-	{FragShaderId::Color,       "color",        shader_frag_color},
-	{FragShaderId::Texture,     "texture",      shader_frag_texture},
-	{FragShaderId::Gradient,    "gradient",     shader_frag_gradient},
-	{FragShaderId::Creation,    "creation",     shader_frag_creation},
-	{FragShaderId::Passthrough, "passthrough",  shader_frag_passthrough},
-	{FragShaderId::ColorMatrix, "color_matrix", shader_frag_color_matrix},
-	{FragShaderId::BlendMask,   "blend_mask",   shader_frag_blend_mask},
-	{FragShaderId::Blur,        "blur",         shader_frag_blur},
-	{FragShaderId::DropShadow,  "drop_shadow",  shader_frag_drop_shadow},
+	{FragShaderId::Color,                "color",                 shader_frag_color},
+	{FragShaderId::Texture,              "texture",               shader_frag_texture},
+	{FragShaderId::Gradient,             "gradient",              shader_frag_gradient},
+	{FragShaderId::Creation,             "creation",              shader_frag_creation},
+	{FragShaderId::Passthrough,          "passthrough",           shader_frag_passthrough},
+	{FragShaderId::PassthroughComposite, "passthrough_composite", shader_frag_passthrough_composite},
+	{FragShaderId::ColorMatrix,          "color_matrix",          shader_frag_color_matrix},
+	{FragShaderId::BlendMask,             "blend_mask",           shader_frag_blend_mask},
+	{FragShaderId::Blur,                  "blur",                 shader_frag_blur},
+	{FragShaderId::DropShadow,            "drop_shadow",          shader_frag_drop_shadow},
 };
 static const ProgramDefinition program_definitions[] = {
-	{ProgramId::Color,       "color",        VertShaderId::Main,        FragShaderId::Color},
-	{ProgramId::Texture,     "texture",      VertShaderId::Main,        FragShaderId::Texture},
-	{ProgramId::Gradient,    "gradient",     VertShaderId::Main,        FragShaderId::Gradient},
-	{ProgramId::Creation,    "creation",     VertShaderId::Main,        FragShaderId::Creation},
-	{ProgramId::Passthrough, "passthrough",  VertShaderId::Passthrough, FragShaderId::Passthrough},
-	{ProgramId::ColorMatrix, "color_matrix", VertShaderId::Passthrough, FragShaderId::ColorMatrix},
-	{ProgramId::BlendMask,   "blend_mask",   VertShaderId::Passthrough, FragShaderId::BlendMask},
-	{ProgramId::Blur,        "blur",         VertShaderId::Blur,        FragShaderId::Blur},
-	{ProgramId::DropShadow,  "drop_shadow",  VertShaderId::Passthrough, FragShaderId::DropShadow},
+	{ProgramId::Color,                "color",                 VertShaderId::Main,        FragShaderId::Color},
+	{ProgramId::Texture,              "texture",               VertShaderId::Main,        FragShaderId::Texture},
+	{ProgramId::Gradient,             "gradient",              VertShaderId::Main,        FragShaderId::Gradient},
+	{ProgramId::Creation,             "creation",              VertShaderId::Main,        FragShaderId::Creation},
+	{ProgramId::Passthrough,          "passthrough",           VertShaderId::Passthrough, FragShaderId::Passthrough},
+	{ProgramId::PassthroughComposite, "passthrough_composite", VertShaderId::Passthrough, FragShaderId::PassthroughComposite},
+	{ProgramId::ColorMatrix,          "color_matrix",          VertShaderId::Passthrough, FragShaderId::ColorMatrix},
+	{ProgramId::BlendMask,             "blend_mask",           VertShaderId::Passthrough, FragShaderId::BlendMask},
+	{ProgramId::Blur,                  "blur",                 VertShaderId::Blur,        FragShaderId::Blur},
+	{ProgramId::DropShadow,            "drop_shadow",          VertShaderId::Passthrough, FragShaderId::DropShadow},
 };
 // clang-format on
 
@@ -818,7 +848,10 @@ void RenderInterface_GL3_Recoil::EndFrame()
 	// Instead, if we had a transparent destination that didn't use premultiplied alpha, we would need to perform a manual un-premultiplication step.
 	glActiveTexture(GL_TEXTURE0);
 	Gfx::BindTexture(fb_postprocess);
-	UseProgram(ProgramId::Passthrough);
+	// PassthroughComposite is Passthrough with an Apple/KK discard on pure
+	// black — used only here, not in the intermediate UI filter chain, so
+	// near-black menu backgrounds/text shadows aren't eaten.
+	UseProgram(ProgramId::PassthroughComposite);
 	DrawFullscreenQuad();
 
 	render_layers.EndFrame();

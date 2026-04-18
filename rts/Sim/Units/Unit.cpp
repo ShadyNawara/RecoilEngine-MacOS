@@ -964,12 +964,24 @@ static auto SplitResourcePackIntoPositiveNegative (const SResourcePack &pack)
 {
 	SResourcePack positive {0.0f}, negative {0.0f};
 
+#if defined(__cpp_lib_ranges_enumerate) && __cpp_lib_ranges_enumerate >= 202302L
 	for (auto [resourceID, value] : std::views::enumerate (pack)) {
 		if (value < 0.0f)
 			negative[resourceID] = -value;
 		else
 			positive[resourceID] = value;
 	}
+#else
+	// libc++ on Apple Clang hasn't implemented std::views::enumerate yet
+	size_t resourceID = 0;
+	for (const float value : pack) {
+		if (value < 0.0f)
+			negative[resourceID] = -value;
+		else
+			positive[resourceID] = value;
+		++resourceID;
+	}
+#endif
 
 	return std::make_pair (positive, negative);
 }

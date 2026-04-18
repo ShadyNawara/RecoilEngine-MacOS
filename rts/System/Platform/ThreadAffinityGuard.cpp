@@ -3,6 +3,10 @@
 #include "System/Log/ILog.h"
 #ifdef _WIN32
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach/mach_init.h>
+#include <mach/thread_act.h>
+#include <pthread.h>
 #else
 #include <sched.h>
 #include <unistd.h>
@@ -17,6 +21,18 @@ ThreadAffinityGuard::ThreadAffinityGuard() : affinitySaved(false) {
 	affinitySaved = ( savedAffinity != 0 );
 	if (!affinitySaved) {
 		LOG_L(L_WARNING, "GetThreadAffinityMask failed with error code: %lu", GetLastError());
+	}
+#elif defined(__APPLE__)
+	machThread = pthread_mach_thread_np(pthread_self());
+	mach_msg_type_number_t count = THREAD_AFFINITY_POLICY_COUNT;
+	boolean_t getDefault = FALSE;
+	savedAffinity.affinity_tag = THREAD_AFFINITY_TAG_NULL;
+	if (thread_policy_get(machThread, THREAD_AFFINITY_POLICY,
+	                      reinterpret_cast<thread_policy_t>(&savedAffinity),
+	                      &count, &getDefault) == KERN_SUCCESS) {
+		affinitySaved = true;
+	} else {
+		LOG_L(L_WARNING, "Failed to save thread affinity.");
 	}
 #else
 	tid = syscall(SYS_gettid);  // Get thread ID
@@ -35,6 +51,12 @@ ThreadAffinityGuard::~ThreadAffinityGuard() {
 #ifdef _WIN32
 		if (!SetThreadAffinityMask(threadHandle, savedAffinity)) {
 			LOG_L(L_WARNING, "SetThreadAffinityMask failed with error code: %lu", GetLastError());
+		}
+#elif defined(__APPLE__)
+		if (thread_policy_set(machThread, THREAD_AFFINITY_POLICY,
+		                      reinterpret_cast<thread_policy_t>(&savedAffinity),
+		                      THREAD_AFFINITY_POLICY_COUNT) != KERN_SUCCESS) {
+			LOG_L(L_WARNING, "Failed to restore thread affinity.");
 		}
 #else
 		if (sched_setaffinity(tid, sizeof(cpu_set_t), &savedAffinity) != 0) {

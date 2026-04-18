@@ -11,6 +11,8 @@
 //windows workarrounds
 #undef KeyPress
 #undef KeyRelease
+#elif defined(__APPLE__)
+#include <unistd.h> // isatty
 #else
 #include <unistd.h> // isatty
 #include <X11/Xlib.h> // XInitThreads

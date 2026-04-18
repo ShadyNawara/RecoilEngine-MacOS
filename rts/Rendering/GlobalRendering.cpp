@@ -41,6 +41,11 @@
 #include <SDL_syswm.h>
 #include <SDL_rect.h>
 
+// Keep this AFTER all SDL headers: on Apple it redefines the SDL_GL_* call
+// names as macros that route to Mesa EGL + Zink, leaving Apple's OpenGL.framework
+// entirely out of the link.
+#include "System/Platform/Mac/MacEGL.h"
+
 #include "System/Misc/TracyDefs.h"
 
 CONFIG(bool, DebugGL).defaultValue(false).description("Enables GL debug-context and output. (see GL_ARB_debug_output)");
@@ -425,7 +430,17 @@ SDL_Window* CGlobalRendering::CreateSDLWindow(const char* title) const
 	//   SDL_WINDOW_FULLSCREEN_DESKTOP for "fake" fullscreen that takes the size of the desktop;
 	//   and 0 for windowed mode.
 
-	uint32_t sdlFlags  = (SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+	// On macOS we do not use Apple's OpenGL.framework for the window — a
+	// Mesa EGL + Zink (via KosmicKrisp) context is created separately — so
+	// we must not pass SDL_WINDOW_OPENGL, otherwise SDL allocates a native
+	// CGL context whose pixel-format conflicts with the Metal layer we
+	// attach via MacEGL.
+#ifdef __APPLE__
+	constexpr uint32_t sdlWindowGLFlag = 0;
+#else
+	constexpr uint32_t sdlWindowGLFlag = SDL_WINDOW_OPENGL;
+#endif
+	uint32_t sdlFlags  = (sdlWindowGLFlag | SDL_WINDOW_RESIZABLE);
 	         sdlFlags |= (borderless_ ? SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_FULLSCREEN) * fullScreen_;
 	         sdlFlags |= (SDL_WINDOW_BORDERLESS * borderless_);
 
@@ -1245,7 +1260,17 @@ void CGlobalRendering::SetWindowAttributes(SDL_Window* window)
 	SDL_SetWindowPosition(window, winPosX, winPosY);
 	SDL_SetWindowSize(window, newRes.x, newRes.y);
 
-	if (SDL_SetWindowFullscreen(window, (borderless ? SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_FULLSCREEN) * fullScreen) != 0)
+#ifdef __APPLE__
+	// macOS exclusive fullscreen (SDL_WINDOW_FULLSCREEN) routes the NSView
+	// through AppKit's native fullscreen animation, which detaches/re-attaches
+	// the backing layer and fights the CAMetalLayer our Mesa patch swapped in
+	// — causes 1-FPS stalls. Always use borderless fullscreen-desktop on Apple;
+	// the CAMetalLayer stays pinned and performance is preserved.
+	const uint32_t fsFlag = SDL_WINDOW_FULLSCREEN_DESKTOP * fullScreen;
+#else
+	const uint32_t fsFlag = (borderless ? SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_FULLSCREEN) * fullScreen;
+#endif
+	if (SDL_SetWindowFullscreen(window, fsFlag) != 0)
 		LOG("[GR::%s][4][SDL_SetWindowFullscreen] err=\"%s\"", __func__, SDL_GetError());
 
 	SDL_SetWindowBordered(window, borderless ? SDL_FALSE : SDL_TRUE);

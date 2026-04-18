@@ -30,9 +30,25 @@ find_package(SDL2 MODULE REQUIRED)
 
 set(engineLibraries SDL2::SDL2)
 
-set(OpenGL_GL_PREFERENCE LEGACY)
-find_package_static(OpenGL 3.0 REQUIRED)
-list(APPEND engineLibraries OpenGL::GL)
+if (APPLE)
+	# On macOS we drive OpenGL through Mesa + Zink + KosmicKrisp (Vulkan on
+	# Metal), not Apple's OpenGL.framework. The libGL.dylib we link against
+	# lives in the patched Mesa install at $HOME/mesa-native (override with
+	# -DMESA_NATIVE_DIR=/path/to/mesa-native on the CMake command line).
+	if (NOT DEFINED MESA_NATIVE_DIR)
+		set(MESA_NATIVE_DIR "$ENV{HOME}/mesa-native" CACHE PATH "Mesa+Zink+KosmicKrisp install prefix")
+	endif()
+	if (NOT EXISTS "${MESA_NATIVE_DIR}/lib/libGL.dylib")
+		message(FATAL_ERROR "[MacEGL] MESA_NATIVE_DIR=${MESA_NATIVE_DIR} does not contain lib/libGL.dylib. Build the patched Mesa first (see project_macos_build memory).")
+	endif()
+	include_directories(SYSTEM "${MESA_NATIVE_DIR}/include")
+	list(APPEND engineLibraries "${MESA_NATIVE_DIR}/lib/libGL.dylib"
+	                            "${MESA_NATIVE_DIR}/lib/libEGL.dylib")
+else()
+	set(OpenGL_GL_PREFERENCE LEGACY)
+	find_package_static(OpenGL 3.0 REQUIRED)
+	list(APPEND engineLibraries OpenGL::GL)
+endif()
 
 find_fontconfig_hack()
 find_package_static(Fontconfig 2.11 REQUIRED)
@@ -49,11 +65,11 @@ find_freetype_hack() # hack to find different named freetype.dll
 find_package_static(Freetype 2.8.1 REQUIRED)
 list(APPEND engineLibraries Freetype::Freetype)
 
-if    (UNIX)
+if    (UNIX AND NOT APPLE)
 	find_package(X11 REQUIRED)
 	target_link_libraries(Game PRIVATE X11::Xcursor)
 	list(APPEND engineLibraries ${X11_Xcursor_LIB} ${X11_X11_LIB})
-endif (UNIX)
+endif (UNIX AND NOT APPLE)
 
 if (APPLE)
 	find_library(COREFOUNDATION_LIBRARY Foundation)

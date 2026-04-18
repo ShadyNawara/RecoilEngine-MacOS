@@ -1,25 +1,6 @@
-# Recoil is an open source real time strategy game engine
+# Building RecoilEngine on macOS (Apple Silicon)
 
-Visit the [Official Website](https://recoilengine.org)
-
-## Get the engine sources
-
-    git clone https://github.com/beyond-all-reason/RecoilEngine --recursive
-
-Recoil is a fork and continuation of an RTS [engine](https://github.com/spring/spring) version 105.0
-
-Visit our [Discord](https://discord.gg/GUpRg6Wz3e) for help, suggestions, bugs, community forum and everything Recoil related.
-
-## Installation
-
-You can use a pre-compiled binary, usually, you want to use an installer or a package prepared for your OS:
-
-* <https://github.com/beyond-all-reason/RecoilEngine/releases>
-
-
-## Compiling on macOS (Apple Silicon)
-
-This section covers building and running Recoil natively on macOS — specifically
+This document covers building and running Recoil natively on macOS — specifically
 Apple Silicon (M-series). Apple's OpenGL.framework tops out at OpenGL 4.1 Core
 and does not provide a compatibility profile, neither of which is enough for
 Recoil. Instead, the engine is wired through **Mesa + Zink + KosmicKrisp**,
@@ -30,13 +11,13 @@ CI builds run.
 It also covers running **BYAR-Chobby** (the Beyond All Reason lobby) on top
 of the native macOS build in a live-editable source layout.
 
-Tested on macOS Tahoe (26.x) with an Apple M-series chip. Should work on any
-arm64 macOS that supports Vulkan/Metal on Apple GPUs.
+Tested on macOS Tahoe (26.x) with an Apple M4 Max. Should work on any arm64
+macOS that supports Vulkan/Metal on Apple GPUs.
 
-A copy of this section is also kept as a standalone document at
-[doc/building-macos.md](doc/building-macos.md).
 
-### Pipeline at a glance
+---
+
+## Pipeline at a glance
 
 ```
 Recoil (OpenGL 4.6 compat)
@@ -59,7 +40,9 @@ via `DYLD_INSERT_LIBRARIES` so that `dlsym("gl*")` resolves through
 `eglGetProcAddress`, and so `MESA_EGL_LIBRARY` / `MESA_VULKAN_LIBRARY` are
 discovered relative to the installed Mesa prefix.
 
-### Prerequisites
+---
+
+## Prerequisites
 
 Install Xcode Command Line Tools (provides `/usr/bin/clang`, the macOS SDK,
 and `xcrun`):
@@ -74,7 +57,7 @@ Install Homebrew if you don't have it:
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-### Step 1 — Homebrew packages
+## Step 1 — Homebrew packages
 
 ```bash
 # Engine build tools and dependencies
@@ -94,7 +77,7 @@ Notes:
 - **`vulkan-loader`** provides the Khronos Vulkan loader (`libvulkan.1.dylib`) that Zink opens. KosmicKrisp is a Vulkan ICD *driver*, not a loader.
 - **`molten-vk`** is still pulled in because Mesa's build requires its headers for some fallback paths, even when kosmickrisp is the primary driver.
 
-### Step 2 — Python modules for the Mesa build
+## Step 2 — Python modules for the Mesa build
 
 Pick whichever Python 3 Homebrew's Mesa build resolves to (3.10+). For the
 default Python 3.14 on a current Homebrew:
@@ -106,7 +89,7 @@ pip3.14 install --break-system-packages --user mako pyyaml packaging
 Without these, Meson's configure step errors with `Python >= 3.10 not found`
 even though a suitable interpreter is present.
 
-### Step 3 — Build the patched Mesa fork
+## Step 3 — Build the patched Mesa fork
 
 The fork at <https://github.com/ShadyNawara/mesa-BAR> (branched from
 <https://github.com/lucamignatti/mesa>, which introduced the Metal vtbl for
@@ -151,7 +134,7 @@ Gotchas:
 
 Build time is roughly 10–20 minutes on an M-series chip.
 
-### Step 4 — Copy the real Vulkan loader into the Mesa install
+## Step 4 — Copy the real Vulkan loader into the Mesa install
 
 The Homebrew `vulkan-loader` exposes `libvulkan.1.dylib` as a symlink, but the
 libgl interposer runs `dladdr` to find its own directory and tries to open a
@@ -166,7 +149,7 @@ ln -sf "$REAL_VULKAN" libvulkan.1.dylib
 ln -sf libvulkan.1.dylib libvulkan.dylib
 ```
 
-### Step 5 — Rebuild the interposer as fat arm64+arm64e
+## Step 5 — Rebuild the interposer as fat arm64+arm64e
 
 Mesa's build produces `libgl_interpose.dylib` as arm64-only. When the engine
 runs under `DYLD_INSERT_LIBRARIES`, macOS calls such as `wordexp(3)` spawn
@@ -187,7 +170,7 @@ this by building a fat dylib:
 (The linker's `-lEGL` warning about the missing arm64e EGL slice is benign;
 only the arm64 slice of the interposer is ever loaded into Recoil.)
 
-### Step 6 — Configure and build Recoil
+## Step 6 — Configure and build Recoil
 
 From the repository root:
 
@@ -221,7 +204,7 @@ OpenAL overrides are required because CMake on macOS otherwise picks up
 Apple's built-in `OpenAL.framework`, which does not support EFX extensions
 and breaks `rts/System/Sound/OpenAL/EFXPresets.h`.
 
-### Step 7 — Run
+## Step 7 — Run
 
 ```bash
 cd /path/to/RecoilEngine/build
@@ -253,33 +236,39 @@ FBO extension support     : 1
 
 and zero `Fatal` / `Error:` / `Shader … Error` / `Link error` lines.
 
-### Troubleshooting
 
-#### `dyld[…]: tried: '…/libgl_interpose.dylib' (mach-o file, but is an incompatible architecture (have 'arm64', need 'arm64e'))`
+---
+
+## Troubleshooting
+
+### `dyld[…]: tried: '…/libgl_interpose.dylib' (mach-o file, but is an incompatible architecture (have 'arm64', need 'arm64e'))`
 The interposer wasn't rebuilt as a fat binary. Repeat step 5.
 
-#### `${XDG_CONFIG_HOME-"~/.config"}/spring/` appears literally in logs, engine aborts with `a datadir may not be specified with a relative path`
+### `${XDG_CONFIG_HOME-"~/.config"}/spring/` appears literally in logs, engine aborts with `a datadir may not be specified with a relative path`
 Also the fat-interposer issue: `wordexp()` calls `/bin/sh` (arm64e), injection fails silently, env expansion returns the original string. Rebuild the interposer.
 
-#### `MESA: error: ZINK: failed to load libvulkan.1.dylib`
+### `MESA: error: ZINK: failed to load libvulkan.1.dylib`
 The Vulkan loader isn't alongside `libEGL.dylib`. Repeat step 4.
 
-#### `[GR::CreateGLContext] error creating main GL3.0 compatibility-context`
+### `[GR::CreateGLContext] error creating main GL3.0 compatibility-context`
 Mesa EGL isn't loading — the interposer's `MESA_EGL_LIBRARY` setting hasn't reached the process. Check `DYLD_INSERT_LIBRARIES` is set and the path is correct. `otool -L build/spring | grep libGL` should show `$HOME/mesa-native/lib/libGL.dylib`, not `/System/Library/Frameworks/OpenGL.framework/…`.
 
-#### `MESA: error: CreateSwapchainKHR failed with VK_ERROR_FORMAT_NOT_SUPPORTED`
+### `MESA: error: CreateSwapchainKHR failed with VK_ERROR_FORMAT_NOT_SUPPORTED`
 This is a warning-level message that Mesa prints on its first try; it retries with a compatible format and succeeds. If the engine reports frames rendering afterwards, it's working as intended.
 
-#### `WARNING: Some incorrect rendering might occur because the selected Vulkan device (Apple M…) doesn't support base Zink requirements: have_EXT_custom_border_color have_EXT_line_rasterization`
+### `WARNING: Some incorrect rendering might occur because the selected Vulkan device (Apple M…) doesn't support base Zink requirements: have_EXT_custom_border_color have_EXT_line_rasterization`
 Expected on Apple hardware — KosmicKrisp doesn't expose these optional Vulkan extensions yet. Zink uses fallbacks; visible glitches are possible but gameplay works.
 
-### Running BYAR-Chobby (the BAR lobby)
+
+---
+
+## Running BYAR-Chobby (the BAR lobby)
 
 BYAR-Chobby is a Lua-only "game" archive that the engine runs as its menu.
 It depends on the base Chobby lobby code plus a few libs (`chili`, `chilifx`,
 `chotify`, `i18n`, `liblobby`) — the source repo bundles them under `libs/`.
 
-#### Step A — Clone the Chobby and BAR source trees
+### Step A — Clone the Chobby and BAR source trees
 
 Pull both repositories directly and expose them to the engine as live-editable
 SDD ("spring-data directory") archives.
@@ -302,7 +291,7 @@ git clone --depth 1 https://github.com/beyond-all-reason/Beyond-All-Reason.git
 
 Use `--depth 1` unless you intend to edit and push changes.
 
-#### Step B — Publish both as SDDs the engine can resolve
+### Step B — Publish both as SDDs the engine can resolve
 
 Symlink each clone into `~/.config/spring/games/` under the exact name the
 engine reads from `modinfo.lua`. For Chobby that's `BYAR-Chobby.sdd`; for the
@@ -323,7 +312,7 @@ sees the archives as `BYAR Chobby $VERSION` and `Beyond All Reason $VERSION`.
 Pass those exact strings (single-quoted so the shell doesn't expand `$VERSION`)
 when referencing them from command lines or skirmish scripts.
 
-#### Step C — Deploy `chobby_config.json`
+### Step C — Deploy `chobby_config.json`
 
 The spring-launcher writes this file at startup in production builds; on a
 native macOS build it has to be created by hand:
@@ -344,9 +333,9 @@ EOF
 
 Without this file Chobby aborts with `Missing chobby_config.json file`.
 
-#### Step D — Launch
+### Step D — Launch
 
-The repo ships [`doc/run-macos.sh`](doc/run-macos.sh), a thin wrapper that sets
+The repo ships [`doc/run-macos.sh`](run-macos.sh), a thin wrapper that sets
 the full `DYLD_INSERT_LIBRARIES` / `VK_DRIVER_FILES` / `MESA_*` / `EGL_PLATFORM`
 / `SPRING_DATADIR` envelope and invokes the engine with the Chobby lobby as
 its menu:
@@ -375,7 +364,7 @@ SPRING_DATADIR="$(pwd):$(pwd)/../cont:$HOME/.config/spring" \
 From the lobby you can log in, pick a game mode, and start a skirmish/multiplayer
 match — the engine loads `BAR.sdd` from the same `games/` directory.
 
-#### Updating Chobby or BAR later
+### Updating Chobby or BAR later
 
 Since both are plain checkouts, `git pull` in either directory refreshes the
 content the engine sees next launch — no rapid-repo re-fetch, no container
@@ -386,10 +375,3 @@ rebuild:
 ( cd "$BAR_SRC/Beyond-All-Reason"  && git pull )
 ```
 
-## License
-
-Our Terms are documented in the [LICENSE](LICENSE).
-
-## AI Policy usage
-
-Please adhere to the [AI usage policy](https://github.com/beyond-all-reason/RecoilEngine/blob/master/AI_POLICY.md), if you use such tools.
